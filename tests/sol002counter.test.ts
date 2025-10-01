@@ -11,105 +11,57 @@ describe("counter_program", () => {
   anchor.setProvider(provider);
 
   const program = anchor.workspace.counter_program as Program<CounterProgram>;
-  const user = provider.wallet;
 
-  let userAny: anchor.web3.Keypair;
+  const counterAccount = anchor.web3.Keypair.generate();
+  const owner = anchor.web3.Keypair.generate();
+  const otherAccount = anchor.web3.Keypair.generate();
 
-  let counterAccountIndependent: anchor.web3.Keypair;
-
-  //Para testes interdependentes
-  //const counterAccount = anchor.web3.Keypair.generate();
+  async function airdrop(pubkey: anchor.web3.PublicKey, lamports = 2e9) {
+    // 2 SOL em devnet; ajuste se o faucet limitar a 1 SOL
+    const { blockhash, lastValidBlockHeight } = await provider.connection.getLatestBlockhash();
+    const sig = await provider.connection.requestAirdrop(pubkey, lamports);
+    await provider.connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  }
+  before(async () => {
+    // Necessário se estiver em devnet (ou local validator desligado)
+    await airdrop(owner.publicKey, 1e9);
+    await airdrop(otherAccount.publicKey, 2e9);
+  });  
   
-  //Para testes independentes
-  beforeEach(async () => {
-    counterAccountIndependent = anchor.web3.Keypair.generate();
-    userAny = anchor.web3.Keypair.generate();
-  });
-
-  //guarda apenas a primeira conta gerada
-  let counterAccount: anchor.web3.Keypair;
-
-  it("Initializes the counter", async () => {
-
-    counterAccount = counterAccountIndependent;
-
+  it("Initializes the counter with 0.1 SOL", async () => {
+  
+    const startValue = new anchor.BN(2);
+    const initialLamports = new anchor.BN(0.1 * anchor.web3.LAMPORTS_PER_SOL); // 0.1 SOL
+    
     const tx = await program.methods
-      .initialize(new anchor.BN(2))
+      .initialize(startValue, initialLamports)
       .accounts({
-        counter: counterAccountIndependent.publicKey,
-        user: user.publicKey,
-        //systemProgram: anchor.web3.SystemProgram.programId, // ✅ correct key name
+        counter: counterAccount.publicKey,
+        user: owner.publicKey,
       })
-      .signers([counterAccountIndependent])
+      .signers([counterAccount, owner])
       .rpc();
-
+    
     console.log("Initialize tx:", tx);
-
-    console.log("counterAccountIndependent: ", counterAccountIndependent.publicKey);
-    console.log("counterAccount: ", counterAccount.publicKey);
-
-    const state = await program.account.counterAccount.fetch(counterAccountIndependent.publicKey);
+    
+    const state = await program.account.counterAccount.fetch(counterAccount.publicKey);
     assert.equal(state.count.toNumber(), 2);
-    //assert.equal(state.finalized, false);
+    
+    const bal = await provider.connection.getBalance(counterAccount.publicKey);
+    assert.ok(bal >= 0.1 * anchor.web3.LAMPORTS_PER_SOL); // funded in the same call
+    
   });
 
-  //Teste independente do anterior
-  it("Increments and decrements the counter", async () => {
-    await program.methods
-      .initialize(new anchor.BN(1))
-      .accounts({
-        counter: counterAccountIndependent.publicKey,
-        user: user.publicKey,
-        //systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([counterAccountIndependent])
-      .rpc();
-
-    await program.methods
-      .increment()
-      .accounts({
-        counter: counterAccountIndependent.publicKey,
-        user: user.publicKey,
-      })
-      .rpc();
-
-    let state = await program.account.counterAccount.fetch(counterAccountIndependent.publicKey);
-    assert.equal(state.count.toNumber(), 2);
-
-    await program.methods
-      .decrement()
-      .accounts({
-        counter: counterAccountIndependent.publicKey,
-        user: user.publicKey,
-      })
-      .rpc();
-
-    state = await program.account.counterAccount.fetch(counterAccountIndependent.publicKey);
-    assert.equal(state.count.toNumber(), 1);
-  });
-
-  //Teste dependente do primeiro test
+  //Teste dependente do anterior
   it("Increments and decrements the counter", async () => {
     
-    /*
-    await program.methods
-      .initialize(new anchor.BN(1))
-      .accounts({
-        counter: counterAccount.publicKey,
-        user: user.publicKey,
-        //systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([counterAccount])
-      .rpc();
-
-    */ 
-
     await program.methods
       .increment()
       .accounts({
         counter: counterAccount.publicKey,
-        user: user.publicKey,
+        user: otherAccount.publicKey,
       })
+      .signers([otherAccount])
       .rpc();
 
     let state = await program.account.counterAccount.fetch(counterAccount.publicKey);
@@ -119,15 +71,15 @@ describe("counter_program", () => {
       .decrement()
       .accounts({
         counter: counterAccount.publicKey,
-        user: user.publicKey,
+        user: otherAccount.publicKey,
       })
+      .signers([otherAccount])
       .rpc();
 
     state = await program.account.counterAccount.fetch(counterAccount.publicKey);
     assert.equal(state.count.toNumber(), 2);
   });
-
-
+  
   //Teste dependente do anterior
   it("Decrements 4 times the counter", async () => {
     
@@ -135,38 +87,41 @@ describe("counter_program", () => {
       .decrement()
       .accounts({
         counter: counterAccount.publicKey,
-        user: user.publicKey,
+        user: otherAccount.publicKey,
       })
+      .signers([otherAccount])
       .rpc();
 
     await program.methods
       .decrement()
       .accounts({
         counter: counterAccount.publicKey,
-        user: user.publicKey,
+        user: otherAccount.publicKey,
       })
+      .signers([otherAccount])
       .rpc();      
 
     await program.methods
       .decrement()
       .accounts({
         counter: counterAccount.publicKey,
-        user: user.publicKey,
+        user: otherAccount.publicKey,
       })
+      .signers([otherAccount])
       .rpc();
 
     await program.methods
       .decrement()
       .accounts({
         counter: counterAccount.publicKey,
-        user: user.publicKey,
+        user: otherAccount.publicKey,
       })
+      .signers([otherAccount])
       .rpc();      
 
     let state = await program.account.counterAccount.fetch(counterAccount.publicKey);
     assert.equal(state.count.toNumber(), -2);
   });
-
 
   //Teste dependente do teste anterior
   it("Increments 4 times the counter", async () => {
@@ -176,8 +131,9 @@ describe("counter_program", () => {
         .increment()
         .accounts({
           counter: counterAccount.publicKey,
-          user: user.publicKey,
+          user: otherAccount.publicKey,
         })
+        .signers([otherAccount])
         .rpc();
 
     let state = await program.account.counterAccount.fetch(counterAccount.publicKey);
@@ -185,7 +141,7 @@ describe("counter_program", () => {
 
   });
 
-  
+
   //Teste dependente do teste anterior
   it("Can't finalize the contract - count too low", async () => {
 
@@ -195,8 +151,9 @@ describe("counter_program", () => {
         .finalize()
         .accounts({
           counter: counterAccount.publicKey,
-          user: user.publicKey,
+          owner: otherAccount.publicKey,
         })
+        .signers([otherAccount])
         .rpc();
       
       // If we got here, the call didn't fail as expected
@@ -208,41 +165,81 @@ describe("counter_program", () => {
 
   });
 
-  //Teste dependente do teste anterior
-  it("Should finalize the contract", async () => {
 
-    for(let i = 0; i < 4; i++) 
+  it("Should finalize the contract (prints balances before/after)", async () => {
+    const conn = provider.connection;
+  
+    // 4 interações (cada uma paga 0.01 SOL para a conta 'counter')
+    for (let i = 0; i < 4; i++) {
       await program.methods
         .increment()
         .accounts({
           counter: counterAccount.publicKey,
-          user: userAny.publicKey,
+          user: otherAccount.publicKey, // este é quem paga a taxa por interação
         })
+        .signers([otherAccount])
         .rpc();
-
+    }
+  
+    // estado deve ter sido incrementado
     let state = await program.account.counterAccount.fetch(counterAccount.publicKey);
     assert.equal(state.count.toNumber(), 6);
-
-    await program.methods
+  
+    // --- saldos antes do finalize ---
+    const counterBalBefore = await conn.getBalance(counterAccount.publicKey);
+    const ownerBalBefore = await conn.getBalance(owner.publicKey);
+  
+    const lamportsToSol = (lamports: number) =>
+      lamports / anchor.web3.LAMPORTS_PER_SOL;
+  
+    console.log(">> BEFORE FINALIZE");
+    console.log("counter balance (lamports):", counterBalBefore, "| SOL:", lamportsToSol(counterBalBefore));
+    console.log("owner   balance (lamports):", ownerBalBefore,    "| SOL:", lamportsToSol(ownerBalBefore));
+  
+    // --- finalize (owner deve assinar) ---
+    const finalizeSig = await program.methods
       .finalize()
       .accounts({
         counter: counterAccount.publicKey,
-        user: user.publicKey,
+        owner: owner.publicKey, // deve ser o owner gravado na conta
       })
-      .rpc();    
+      .signers([owner]) // IMPORTANTE: owner assina a instrução
+      .rpc();
+  
+    console.log("Finalize tx:", finalizeSig);
 
-    // ✅ Do not try to fetch the account now.
-    // You can test indirectly, like checking that the account no longer exists:
+    // fetch full transaction details
+    const txDetails = await provider.connection.getTransaction(finalizeSig, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0, // include v0 transactions
+    });
+
+    console.log("Raw Transaction Details:", JSON.stringify(txDetails, null, 2));
+  
+    // --- após finalizar: conta 'counter' fechada; lamports vão para o owner ---
+    const ownerBalAfter = await conn.getBalance(owner.publicKey);
+  
+    console.log(">> AFTER FINALIZE");
+    console.log("owner balance (lamports):", ownerBalAfter, "| SOL:", lamportsToSol(ownerBalAfter));
+  
+    // a conta fechada não pode mais ser buscada
     try {
       await program.account.counterAccount.fetch(counterAccount.publicKey);
       assert.fail("Should not be able to fetch closed account");
-    } catch (e) {
+    } catch (e: any) {
       assert.include(e.message, "Account does not exist");
     }
-
-    //state = await program.account.counterAccount.fetch(counterAccount.publicKey);
-    //assert.equal(state.finalized, true);
-
+  
+    // verificação: owner recebeu (aprox) o saldo da counter
+    // (nota: haverá uma pequena diferença por taxa da transação de finalize)
+    const delta = ownerBalAfter - ownerBalBefore;
+    console.log("owner delta (lamports):", delta, "| SOL:", lamportsToSol(delta));
+  
+    assert.ok(
+      delta >= counterBalBefore * 0.99, // margem para taxas; ajuste se quiser ser mais estrito
+      "Owner should receive (almost) all lamports from the counter account"
+    );
   });
+  
 
 });
