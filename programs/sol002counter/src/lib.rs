@@ -26,7 +26,6 @@ pub mod counter_program {
             );
             system_program::transfer(cpi_ctx, initial_lamports)?;
         }
-
         Ok(())
     }
 
