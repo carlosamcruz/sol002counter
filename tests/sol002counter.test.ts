@@ -1,6 +1,5 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-//import { Sol002counter } from "../target/types/sol002counter";
 import { CounterProgram } from "../target/types/counter_program";
 import { assert, expect } from "chai";
 
@@ -241,5 +240,52 @@ describe("counter_program", () => {
     );
   });
   
+
+  it("ReInitializes the counter with 0.0 SOL", async () => {
+  
+    const startValue = new anchor.BN(4);
+    const initialLamports = new anchor.BN(0.0 * anchor.web3.LAMPORTS_PER_SOL); // 0.1 SOL
+    
+    const tx = await program.methods
+      .initialize(startValue, initialLamports)
+      .accounts({
+        counter: counterAccount.publicKey,
+        user: owner.publicKey,
+      })
+      .signers([counterAccount, owner])
+      .rpc();
+    
+    console.log("Initialize tx:", tx);
+    
+    const state = await program.account.counterAccount.fetch(counterAccount.publicKey);
+    assert.equal(state.count.toNumber(), 4);
+    
+    const bal = await provider.connection.getBalance(counterAccount.publicKey);
+    assert.ok(bal >= 0.0 * anchor.web3.LAMPORTS_PER_SOL); // funded in the same call
+    
+  });
+
+  //Teste dependente do teste anterior
+  it("Can't finalize the contract - balance too low", async () => {
+
+    //Com este metodo eu posso pegar os erros sem necessidade de plugins extras;
+    try {
+      await program.methods
+        .finalize()
+        .accounts({
+          counter: counterAccount.publicKey,
+          owner: owner.publicKey,
+        })
+        .signers([owner])
+        .rpc();
+      
+      // If we got here, the call didn't fail as expected
+      assert.fail("Expected transaction to be reverted due to balance < 0.1 Sol");
+    } catch (err: any) {
+      // Optional: check specific Anchor error code or message
+      expect(err.message).to.include("Contract balance must be at least 0.1 SOL to finalize.");
+    }
+
+  });
 
 });

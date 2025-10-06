@@ -54,6 +54,13 @@ pub mod counter_program {
         // apenas o owner pode finalizar
         require_keys_eq!(ctx.accounts.owner.key(), counter.owner, CustomError::NotOwner);
 
+        // checa saldo mínimo da conta do contrato
+        let balance = ctx.accounts.counter.to_account_info().lamports();
+        require!(
+            balance >= 100_000_000, // 0.1 SOL em lamports
+            CustomError::InsufficientBalance
+        );
+
         // NÃO precisa transferir manualmente: o atributo `close = owner`
         // na conta `counter` já envia todos os lamports remanescentes para o owner.
         Ok(())
@@ -124,4 +131,6 @@ pub enum CustomError {
     CountNotHighEnough,
     #[msg("Only the owner can perform this action.")]
     NotOwner,
+    #[msg("Contract balance must be at least 0.1 SOL to finalize.")]
+    InsufficientBalance,
 }
